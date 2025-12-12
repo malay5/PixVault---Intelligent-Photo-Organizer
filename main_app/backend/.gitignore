@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+package-lock.json # I see the user has one here. I'll keep it (don't ignore it). Wait, usually we don't ignore lock files.
+# I will only ignore node_modules.
+
+# Environment
+.env
+
+# Uploads
+uploads/
+# Keep the directory but ignore content (usually via .gitkeep, but here we just ignore the folder for now as it seems to be created dynamically)
+
+# Logs
+npm-debug.log*
+yarn-debug.log*

@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+venv/
+env/
+.venv/
+
+# Environment
+.env
+
+# Model Checkpoints (optional, assuming they might be large)
+*.pt
+*.pth
+*.h5

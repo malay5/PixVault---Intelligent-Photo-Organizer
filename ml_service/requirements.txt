@@ -1,0 +1,5 @@
+fastapi
+uvicorn
+python-multipart
+numpy
+# face_recognition # Add this later when confirming system deps (cmake, dlib)
