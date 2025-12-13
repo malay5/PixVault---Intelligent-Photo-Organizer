@@ -13,13 +13,15 @@ import {
     Heart,
     Archive,
     Clock,
-    Trash2
+    Trash2,
+    Share2
 } from "lucide-react";
 import { useState } from "react";
 import { motion } from "framer-motion";
 
 const navItems = [
     { name: "Photos", href: "/", icon: ImageIcon },
+    { name: "Shared with Me", href: "/shared-albums", icon: Share2 },
     { name: "People & Pets", href: "/people", icon: Users },
     { name: "Albums", href: "/albums", icon: FolderOpen },
     { name: "Favorites", href: "/favorites", icon: Heart },

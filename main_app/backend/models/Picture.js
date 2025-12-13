@@ -20,10 +20,16 @@ const pictureSchema = new mongoose.Schema({
     metadata: {
         width: Number,
         height: Number,
-        size: Number
+        size: Number,
+        camera_model: String,
+        software: String
     },
+    is_ai: { type: Boolean, default: false },
     is_favorite: { type: Boolean, default: false },
     album_ids: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Album' }],
+    // Guest / Party Mode Tracking
+    guest_uploaded_by: { type: String },
+    guest_email: { type: String },
     // New Fields for Archive/Trash Logic
     status: {
         type: String,

@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const Album = require('../models/Album');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
@@ -24,6 +25,15 @@ const register = async (req, res) => {
         });
 
         await user.save();
+
+        // Create Default "My Images" Album
+        const defaultAlbum = new Album({
+            user_id: user.id,
+            name: "My Images",
+            description: "Default collection for your uploads",
+            created_at: new Date()
+        });
+        await defaultAlbum.save();
 
         // Create Token
         const payload = {
@@ -89,6 +99,31 @@ const deleteAccount = async (req, res) => {
     try {
         await User.findByIdAndDelete(req.user.id);
         res.json({ msg: 'User deleted' });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server Error');
+    }
+};
+
+const getMe = async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id).select('-password');
+
+        // Ensure "My Images" album exists
+        if (user) {
+            const myImages = await Album.findOne({ user_id: user.id, name: "My Images" });
+            if (!myImages) {
+                await new Album({
+                    user_id: user.id,
+                    name: "My Images",
+                    description: "Default collection for your uploads",
+                    created_at: new Date()
+                }).save();
+                console.log(`Created missing 'My Images' album for user ${user.id}`);
+            }
+        }
+
+        res.json(user);
     } catch (err) {
         console.error(err.message);
         res.status(500).send('Server Error');

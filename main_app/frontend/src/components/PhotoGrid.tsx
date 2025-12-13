@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { CheckCircle2, Heart } from "lucide-react";
+import { CheckCircle2, Heart, RefreshCcw } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useSelection } from "@/utils/SelectionContext";
 import { usePhoto, Photo } from "@/utils/PhotoContext";
@@ -55,20 +55,33 @@ function computeLayout(photos: Photo[], targetRowHeight: number, containerWidth:
 }
 
 interface PhotoGridProps {
-    filter?: 'active' | 'trash' | 'archive';
+    filter?: 'active' | 'trash' | 'archive' | 'favorites';
+    photos?: Photo[]; // Allow overriding source
+    onPhotoClick?: (photo: Photo) => void;
 }
 
-export function PhotoGrid({ filter = 'active' }: PhotoGridProps) {
+export function PhotoGrid({ filter = 'active', photos: externalPhotos, onPhotoClick }: PhotoGridProps) {
     const { isSelected, toggleSelection, selectRange, selectedIds } = useSelection();
-    const { photos, loading } = usePhoto();
+    const { photos: contextPhotos, loading, toggleFavorite, movePhotos } = usePhoto();
     const [lastClickedId, setLastClickedId] = useState<string | null>(null);
 
     const containerWidth = 960; // Should be dynamic using ResizeObserver in real app
     const targetRowHeight = 220;
 
+    // Use external photos if provided, otherwise context photos
+    const sourcePhotos = externalPhotos || contextPhotos;
+
     const filteredPhotos = useMemo(() => {
-        return photos.filter(p => (p.status || 'active') === filter);
-    }, [photos, filter]);
+        // If external photos are provided, we assume they are already the correct set (e.g. Album photos)
+        // EXCEPT if we want to apply local filters on top? 
+        // For Albums, we just want to show them.
+        if (externalPhotos) return externalPhotos;
+
+        if (filter === 'favorites') {
+            return contextPhotos.filter(p => p.status === 'active' && p.is_favorite);
+        }
+        return contextPhotos.filter(p => (p.status || 'active') === filter);
+    }, [contextPhotos, filter, externalPhotos]);
 
     const groups = useMemo(() => groupPhotosByDate(filteredPhotos), [filteredPhotos]);
 
@@ -115,9 +128,18 @@ export function PhotoGrid({ filter = 'active' }: PhotoGridProps) {
 
                 return (
                     <div key={group.date}>
-                        <h2 className="sticky top-16 z-10 py-4 bg-[#fafafa]/95 backdrop-blur-sm text-sm font-semibold text-gray-600 uppercase tracking-widest border-b border-transparent transition-all">
-                            {group.date}
-                        </h2>
+                        <div className="
+            sticky z-10
+        ">
+                            <h2 className="
+                py-4
+                text-sm font-semibold text-gray-600 uppercase tracking-widest 
+                border-b border-gray-100/50 transition-all 
+                -mx-4 px-4 
+            ">
+                                {group.date}
+                            </h2>
+                        </div>
 
                         <div className="flex flex-col gap-1">
                             {rows.map((row, rowIndex) => (
@@ -126,12 +148,18 @@ export function PhotoGrid({ filter = 'active' }: PhotoGridProps) {
                                         const selected = isSelected(photo._id);
                                         const width = photo.metadata?.width || 800;
                                         const height = photo.metadata?.height || 600;
+                                        const isLastRow = rowIndex === rows.length - 1;
 
                                         return (
                                             <Link
                                                 key={photo._id}
                                                 href={selected ? "#" : `/photos/${photo._id}`}
                                                 onClick={(e) => {
+                                                    if (onPhotoClick) {
+                                                        e.preventDefault();
+                                                        onPhotoClick(photo);
+                                                        return;
+                                                    }
                                                     if (selected || selectedIds.size > 0 || e.shiftKey || e.ctrlKey || e.metaKey) {
                                                         e.preventDefault();
                                                         handlePhotoClick(e, photo._id);
@@ -143,7 +171,7 @@ export function PhotoGrid({ filter = 'active' }: PhotoGridProps) {
                                                 )}
                                                 style={{
                                                     width: (row.rowHeight * (width / height)),
-                                                    flexGrow: (width / height)
+                                                    flexGrow: isLastRow ? 0 : (width / height)
                                                 }}
                                             >
                                                 <div className="relative w-full h-full">
@@ -180,6 +208,33 @@ export function PhotoGrid({ filter = 'active' }: PhotoGridProps) {
                                                             <CheckCircle2 size={24} className="drop-shadow-md text-gray-200 hover:text-white" />
                                                         )}
                                                     </button>
+                                                    <button
+                                                        className={clsx(
+                                                            "absolute top-2 right-2 p-1.5 transition-all duration-200 hover:scale-110 rounded-full",
+                                                            filter === 'trash'
+                                                                ? "opacity-0 group-hover:opacity-100 text-white hover:bg-green-500/80 bg-black/20"
+                                                                : photo.is_favorite
+                                                                    ? "opacity-100 bg-white/10 text-red-500 backdrop-blur-[2px]"
+                                                                    : "opacity-0 group-hover:opacity-100 text-white hover:bg-black/20",
+                                                            (filter === 'archive' || externalPhotos) && !photo.is_favorite && "hidden" // Hide heart in Archive/Albums unless favorited? Or just hide? User said "no use".
+                                                        )}
+                                                        onClick={(e) => {
+                                                            e.preventDefault();
+                                                            e.stopPropagation();
+                                                            if (filter === 'trash') {
+                                                                movePhotos([photo._id], 'active');
+                                                            } else {
+                                                                toggleFavorite(photo._id);
+                                                            }
+                                                        }}
+                                                    >
+                                                        {filter === 'trash' ? (
+                                                            <div title="Recover"><RefreshCcw size={18} /></div>
+                                                        ) : (
+                                                            !externalPhotos && <Heart size={20} fill={photo.is_favorite ? "currentColor" : "none"} strokeWidth={2.5} />
+                                                        )}
+                                                    </button>
+
                                                 </div>
                                             </Link>
                                         );

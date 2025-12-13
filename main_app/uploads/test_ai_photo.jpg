@@ -1,0 +1,4 @@
+(binary content not possible here, I will just write a text file masked as jpg or empty file. Actually browser won't render text as image. 
+I'll create a simple text file and hope the frontend handles broken images gracefully enough to click them, OR I create a placeholder SVG if I can save as .svg but the backend checks extensions maybe? 
+Backend `upload.js` checks extension. `Picture` model `file_path` is just a string. 
+I will just create a file `uploads/test_ai_photo.jpg`. The content doesn't matter much if I just want to click the grid item. `PhotoGrid` usually renders an `img` tag. If it breaks, it might still be clickable.)

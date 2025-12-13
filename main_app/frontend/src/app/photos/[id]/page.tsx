@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useRouter, useParams } from "next/navigation";
+import { useRouter, useParams, useSearchParams } from "next/navigation";
 import {
     ArrowLeft,
     Info,
@@ -13,38 +13,93 @@ import {
     MapPin,
     Calendar,
     Camera,
-    Image as ImageIcon
+    Image as ImageIcon,
+    Sparkles
 } from "lucide-react";
 import { useEffect, useCallback, useState } from "react";
 import { clsx } from "clsx";
 import { motion, AnimatePresence } from "framer-motion";
-
-// Mock Data Source (Shared with Grid in a real app)
-const PHOTOS = [
-    { id: 1, src: "https://images.unsplash.com/photo-1517404215738-15263e9f9178?q=80&w=2670", date: "Nov 9, 2024", time: "12:10 AM", location: "Mumbai, India", device: "Pixel 7 Pro", aperture: "f/1.85", shutter: "1/120", iso: "ISO 50" },
-    { id: 2, src: "https://images.unsplash.com/photo-1542038784424-48ed2d405328?q=80&w=2670", date: "Oct 12, 2023", time: "4:30 PM", location: "New York, USA", device: "iPhone 13", aperture: "f/1.6", shutter: "1/500", iso: "ISO 32" },
-    { id: 3, src: "https://images.unsplash.com/photo-1515238152791-8216bfdf89a7?q=80&w=2672", date: "Sep 5, 2023", time: "9:15 AM", location: "Kyoto, Japan", device: "Canon R5", aperture: "f/2.8", shutter: "1/200", iso: "ISO 100" },
-    { id: 4, src: "https://images.unsplash.com/photo-1506744038136-46273834b3fb?q=80&w=2670", date: "Aug 20, 2023", time: "6:45 PM", location: "Yosemite, USA", device: "Sony A7III", aperture: "f/4", shutter: "1/60", iso: "ISO 400" },
-    { id: 5, src: "https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?q=80&w=2621", date: "Jul 4, 2023", time: "2:00 PM", location: "Vancouver, Canada", device: "Pixel 6", aperture: "f/1.9", shutter: "1/1000", iso: "ISO 55" },
-    { id: 6, src: "https://images.unsplash.com/photo-1501785888041-af3ef285b470?q=80&w=2670", date: "Jun 15, 2023", time: "11:00 AM", location: "London, UK", device: "iPhone 14 Pro", aperture: "f/1.7", shutter: "1/250", iso: "ISO 80" },
-];
+import { usePhoto, Photo } from "@/utils/PhotoContext"; // Import Context
 
 export default function ImageViewerPage() {
     const router = useRouter();
     const params = useParams();
-    const id = Number(params.id);
-    const [showInfo, setShowInfo] = useState(false);
+    const searchParams = useSearchParams();
+    const id = params.id as string; // MongoDB ID is string
+    // const [showInfo, setShowInfo] = useState(false);
 
-    const idx = PHOTOS.findIndex((p) => p.id === id);
-    const photo = PHOTOS[idx];
+    const showInfo = searchParams.get("info") === "true";
+
+    // Use global state to find photo + navigation
+    // TODO: Ideally we also fetch individual photo if not in state (e.g. direct link)
+    const { photos, loading: contextLoading, toggleFavorite, movePhotos } = usePhoto(); // Get actions
+
+    const [photo, setPhoto] = useState<Photo | null>(null);
+    const [loading, setLoading] = useState(true);
+
+    // Initial Load Logic
+    useEffect(() => {
+        if (!id) return;
+
+        // 1. Try finding in Context
+        const found = photos.find(p => p._id === id);
+        if (found) {
+            setPhoto(found);
+            setLoading(false);
+        } else {
+            // 2. If not in context (e.g. reload), fetch from API
+            // For now, if photos are empty, we might wait?
+            // Let's rely on Context for now, or fetch if context is loaded but photo not found.
+            if (!contextLoading && photos.length > 0 && !found) {
+                // Item truly not found in loaded list
+                setLoading(false);
+            } else if (!contextLoading && photos.length === 0) {
+                // Context empty, maybe fetch? 
+                // We will skip complex single-fetch for this iteration and assume context fills up.
+                // Actually, let's just wait for context.
+            }
+        }
+    }, [id, photos, contextLoading]);
+
+
+    const idx = photos.findIndex((p) => p._id === id);
+
+    // 4. Helper to toggle info in the URL without changing the photo
+    const toggleInfo = useCallback(() => {
+        const newParams = new URLSearchParams(searchParams.toString());
+        if (showInfo) {
+            newParams.delete("info");
+        } else {
+            newParams.set("info", "true");
+        }
+        router.replace(`/photos/${id}?${newParams.toString()}`, { scroll: false });
+    }, [id, router, searchParams, showInfo]);
+
+    // 5. Helper to generate next/prev links PRESERVING the info state
+    const navigateToPhoto = useCallback((newId: string) => {
+        const query = showInfo ? "?info=true" : "";
+        router.replace(`/photos/${newId}${query}`);
+    }, [router, showInfo]);
 
     const handleNext = useCallback(() => {
-        if (idx < PHOTOS.length - 1) router.replace(`/photos/${PHOTOS[idx + 1].id}`);
-    }, [idx, router]);
+        if (idx !== -1 && idx < photos.length - 1) {
+            navigateToPhoto(photos[idx + 1]._id);
+        }
+    }, [idx, photos, navigateToPhoto]);
 
     const handlePrev = useCallback(() => {
-        if (idx > 0) router.replace(`/photos/${PHOTOS[idx - 1].id}`);
-    }, [idx, router]);
+        if (idx > 0) {
+            navigateToPhoto(photos[idx - 1]._id);
+        }
+    }, [idx, photos, navigateToPhoto]);
+
+    const handleDelete = async () => {
+        if (!photo) return;
+        if (confirm("Move this photo to trash?")) {
+            await movePhotos([photo._id], 'trash');
+            router.back();
+        }
+    };
 
     // Keyboard navigation
     useEffect(() => {
@@ -52,13 +107,22 @@ export default function ImageViewerPage() {
             if (e.key === "ArrowRight") handleNext();
             if (e.key === "ArrowLeft") handlePrev();
             if (e.key === "Escape") router.back();
-            if (e.key === "i") setShowInfo(prev => !prev);
+            if (e.key === "i") toggleInfo();
+            if (e.key === "Delete" || e.key === "Backspace") handleDelete();
         };
         window.addEventListener("keydown", handleKeyDown);
         return () => window.removeEventListener("keydown", handleKeyDown);
-    }, [handleNext, handlePrev, router]);
+    }, [handleNext, handlePrev, router, handleDelete, toggleInfo]); // Added handleDelete dep
 
+    if (loading && !photo) return <div className="text-white flex items-center justify-center h-screen animate-pulse">Loading photo...</div>;
     if (!photo) return <div className="text-white flex items-center justify-center h-screen">Photo not found</div>;
+
+    const dateObj = photo.upload_date ? new Date(photo.upload_date) : new Date();
+    const dateStr = dateObj.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+    const timeStr = dateObj.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+
+    // Use full URL for src
+    const imgSrc = photo.src || (photo.file_path ? `http://localhost:5000/${photo.file_path.replace(/\\/g, '/')}` : "/placeholder.jpg");
 
     return (
         <div className="fixed inset-0 bg-black z-50 flex h-screen text-white overflow-hidden">
@@ -72,17 +136,23 @@ export default function ImageViewerPage() {
                         <ArrowLeft />
                     </button>
                     <div className="flex gap-2">
-                        <button className="p-2 hover:bg-white/10 rounded-full transition-colors group">
-                            <Star className="group-hover:text-yellow-400 transition-colors" />
+                        <button
+                            onClick={() => toggleFavorite(photo._id)}
+                            className="p-2 hover:bg-white/10 rounded-full transition-colors group"
+                        >
+                            <Star className={clsx("group-hover:text-yellow-400 transition-colors", photo.is_favorite && "text-yellow-400 fill-current")} />
                         </button>
-                        <button className="p-2 hover:bg-white/10 rounded-full transition-colors group">
+                        <button
+                            onClick={handleDelete}
+                            className="p-2 hover:bg-white/10 rounded-full transition-colors group"
+                        >
                             <Trash2 className="group-hover:text-red-500 transition-colors" />
                         </button>
                         <button className="p-2 hover:bg-white/10 rounded-full transition-colors">
                             <Share2 />
                         </button>
                         <button
-                            onClick={() => setShowInfo(!showInfo)}
+                            onClick={toggleInfo}
                             className={clsx("p-2 rounded-full transition-colors", showInfo ? "bg-blue-600/80 text-white" : "hover:bg-white/10")}
                         >
                             <Info />
@@ -91,33 +161,34 @@ export default function ImageViewerPage() {
                 </div>
 
                 {/* Main Image Area */}
-                <div className="flex-1 relative flex items-center justify-center">
-                    <div className="relative w-full h-full max-h-[90vh] p-4 flex items-center justify-center">
+                <div className="flex-1 relative flex items-center justify-center bg-black">
+                    <div className="relative w-full h-full p-4 flex items-center justify-center">
                         <motion.div
-                            key={photo.id}
+                            key={photo._id}
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             transition={{ duration: 0.2 }}
                             className="relative w-full h-full"
                         >
                             <Image
-                                src={photo.src}
-                                alt="Full view"
+                                src={imgSrc}
+                                alt={photo.original_name}
                                 fill
                                 className="object-contain"
                                 priority
+                                unoptimized // Optional: Skip next/image optimization if local issues persist, but ideally shouldn't
                             />
                         </motion.div>
                     </div>
 
                     {/* Navigation Arrows */}
                     {idx > 0 && (
-                        <button onClick={handlePrev} className="absolute left-4 p-3 bg-black/20 hover:bg-black/50 backdrop-blur-sm rounded-full transition-all text-white/70 hover:text-white group">
+                        <button onClick={handlePrev} className="absolute left-4 p-3 bg-black/20 hover:bg-black/50 backdrop-blur-sm rounded-full transition-all text-white/70 hover:text-white group z-10">
                             <ChevronLeft size={32} className="group-active:-translate-x-1 transition-transform" />
                         </button>
                     )}
-                    {idx < PHOTOS.length - 1 && (
-                        <button onClick={handleNext} className="absolute right-4 p-3 bg-black/20 hover:bg-black/50 backdrop-blur-sm rounded-full transition-all text-white/70 hover:text-white group">
+                    {idx !== -1 && idx < photos.length - 1 && (
+                        <button onClick={handleNext} className="absolute right-4 p-3 bg-black/20 hover:bg-black/50 backdrop-blur-sm rounded-full transition-all text-white/70 hover:text-white group z-10">
                             <ChevronRight size={32} className="group-active:translate-x-1 transition-transform" />
                         </button>
                     )}
@@ -136,8 +207,8 @@ export default function ImageViewerPage() {
                     >
                         <div className="p-4 flex items-center justify-between border-b border-gray-100">
                             <h2 className="text-lg font-medium">Info</h2>
-                            <button onClick={() => setShowInfo(false)} className="p-2 hover:bg-gray-100 rounded-full text-gray-500">
-                                <ArrowLeft size={20} className="rotate-180" /> {/* Or X icon */}
+                            <button onClick={toggleInfo} className="p-2 hover:bg-gray-100 rounded-full text-gray-500">
+                                <ArrowLeft size={20} className="rotate-180" />
                             </button>
                         </div>
 
@@ -149,58 +220,43 @@ export default function ImageViewerPage() {
                                 <div className="flex gap-4">
                                     <Calendar className="text-gray-400 mt-1" size={20} />
                                     <div>
-                                        <div className="font-medium text-gray-900">{photo.date}</div>
-                                        <div className="text-sm text-gray-500">{photo.time}</div>
+                                        <div className="font-medium text-gray-900">{dateStr}</div>
+                                        <div className="text-sm text-gray-500">{timeStr}</div>
                                     </div>
                                 </div>
 
-                                <div className="flex gap-4">
-                                    <Camera className="text-gray-400 mt-1" size={20} />
-                                    <div>
-                                        <div className="font-medium text-gray-900">{photo.device || "Unknown Camera"}</div>
-                                        <div className="text-sm text-gray-500">
-                                            {photo.aperture} • {photo.shutter} • {photo.iso}
+                                {photo.metadata?.camera_model && photo.metadata.camera_model !== 'Unknown Camera' && (
+                                    <div className="flex gap-4">
+                                        <Camera className="text-gray-400 mt-1" size={20} />
+                                        <div>
+                                            <div className="font-medium text-gray-900">{photo.metadata.camera_model}</div>
+                                            {/* We don't have ISO/Aperture in DB yet, so hiding placeholders to be clean */}
                                         </div>
                                     </div>
-                                </div>
+                                )}
+
+                                {photo.is_ai && (
+                                    <div className="flex gap-4">
+                                        <Sparkles className="text-purple-500 mt-1" size={20} />
+                                        <div>
+                                            <div className="font-medium text-purple-600">AI Generated</div>
+                                            <div className="text-sm text-gray-500">Classified by PixelVault AI</div>
+                                        </div>
+                                    </div>
+                                )}
 
                                 <div className="flex gap-4">
                                     <ImageIcon className="text-gray-400 mt-1" size={20} />
                                     <div>
-                                        <div className="font-medium text-gray-900">IMG_{photo.id}.jpg</div>
-                                        <div className="text-sm text-gray-500">12.2MP • 3024 x 4032 • 4.2 MB</div>
-                                    </div>
-                                </div>
-
-                                <div className="flex gap-4">
-                                    <MapPin className="text-gray-400 mt-1" size={20} />
-                                    <div>
-                                        <div className="font-medium text-gray-900">{photo.location || "Add location"}</div>
-                                        <div className="text-sm text-gray-500 cursor-pointer text-blue-600 hover:underline">View on map</div>
+                                        <div className="font-medium text-gray-900 truncate max-w-[200px]">{photo.original_name}</div>
+                                        <div className="text-sm text-gray-500">
+                                            {/* Show dimension only if valid */}
+                                            {photo.metadata?.width ? `${photo.metadata.width} x ${photo.metadata.height} • ` : ""}
+                                            {photo.metadata?.size ? (photo.metadata.size / 1024 / 1024).toFixed(2) + " MB" : ""}
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-
-                            {/* People Section */}
-                            <div className="space-y-4">
-                                <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">People</h3>
-                                <div className="flex gap-2">
-                                    <div className="w-10 h-10 rounded-full bg-gray-200 overflow-hidden">
-                                        <img src="https://images.unsplash.com/photo-1599566150163-29194dcaad36?w=100" alt="Person" className="w-full h-full object-cover" />
-                                    </div>
-                                    <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-400 border border-dashed border-gray-300">
-                                        +
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="p-4 border-t border-gray-100 bg-gray-50">
-                            <input
-                                type="text"
-                                placeholder="Add a description..."
-                                className="w-full bg-transparent border-none focus:ring-0 text-sm placeholder-gray-500"
-                            />
                         </div>
                     </motion.div>
                 )}

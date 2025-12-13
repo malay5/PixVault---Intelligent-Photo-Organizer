@@ -5,7 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 
 interface AuthContextType {
     isAuthenticated: boolean;
-    login: (token: string) => void;
+    login: (token: string, redirectPath?: string) => void;
     logout: () => void;
     isLoading: boolean;
 }
@@ -32,10 +32,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsLoading(false);
     }, []);
 
-    const login = (token: string) => {
+    const login = (token: string, redirectPath?: string) => {
         localStorage.setItem("token", token);
         setIsAuthenticated(true);
-        router.push("/");
+        router.push(redirectPath || "/");
     };
 
     const logout = () => {

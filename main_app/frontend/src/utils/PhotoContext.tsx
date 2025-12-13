@@ -15,14 +15,19 @@ export interface Photo {
         width?: number;
         height?: number;
         size?: number;
+        camera_model?: string;
+        software?: string;
     };
     faces?: any[];
+    is_ai?: boolean;
+    is_favorite?: boolean;
 }
 
 interface PhotoContextType {
     photos: Photo[];
     refreshPhotos: (status?: string) => Promise<void>;
-    movePhotos: (ids: string[], destination: 'active' | 'trash' | 'archive') => Promise<void>;
+    movePhotos: (ids: string[], destination: 'active' | 'trash' | 'archive' | 'delete_permanent') => Promise<void>;
+    toggleFavorite: (id: string) => Promise<void>;
     loading: boolean;
 }
 
@@ -69,16 +74,23 @@ export function PhotoProvider({ children }: { children: React.ReactNode }) {
         }
     }, [isAuthenticated]);
 
-    // Initial fetch of active photos
+    // Initial fetch of ALL photos so we can filter locally
     useEffect(() => {
         if (isAuthenticated) {
-            refreshPhotos('active');
+            refreshPhotos('all');
         }
     }, [isAuthenticated, refreshPhotos]);
 
-    const movePhotos = async (ids: string[], destination: 'active' | 'trash' | 'archive') => {
-        // Optimistic Update
-        setPhotos(prev => prev.filter(p => !ids.includes(p._id)));
+    const movePhotos = async (ids: string[], destination: 'active' | 'trash' | 'archive' | 'delete_permanent') => {
+        // Optimistic Update: Update status instead of removing
+        setPhotos(prev => {
+            if (destination === 'delete_permanent') {
+                return prev.filter(p => !ids.includes(p._id));
+            }
+            return prev.map(p =>
+                ids.includes(p._id) ? { ...p, status: destination } : p
+            );
+        });
 
         try {
             const token = localStorage.getItem("token");
@@ -90,18 +102,37 @@ export function PhotoProvider({ children }: { children: React.ReactNode }) {
                 },
                 body: JSON.stringify({ photoIds: ids, status: destination })
             });
-            // Success - no need to do anything else as optimistic update removed them from current view
             console.log(`Moved ${ids.length} photos to ${destination}`);
         } catch (err) {
             console.error("Failed to move photos", err);
-            // Revert optimistic update? (Complex without extensive state history)
-            // For now, just refresh
-            refreshPhotos('active');
+            // Revert: Refresh to get true state
+            refreshPhotos('all');
+        }
+    };
+
+    const toggleFavorite = async (id: string) => {
+        // Optimistic Update
+        setPhotos(prev => prev.map(p =>
+            p._id === id ? { ...p, is_favorite: !p.is_favorite } : p
+        ));
+
+        try {
+            const token = localStorage.getItem("token");
+            await fetch(`http://localhost:5000/api/photos/${id}/favorite`, {
+                method: 'PUT',
+                headers: { 'x-auth-token': token || '' }
+            });
+        } catch (err) {
+            console.error("Failed to toggle favorite", err);
+            // Revert
+            setPhotos(prev => prev.map(p =>
+                p._id === id ? { ...p, is_favorite: !p.is_favorite } : p
+            ));
         }
     };
 
     return (
-        <PhotoContext.Provider value={{ photos, refreshPhotos, movePhotos, loading }}>
+        <PhotoContext.Provider value={{ photos, refreshPhotos, movePhotos, toggleFavorite, loading }}>
             {children}
         </PhotoContext.Provider>
     );

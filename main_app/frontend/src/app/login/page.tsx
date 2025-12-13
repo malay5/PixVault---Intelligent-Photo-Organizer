@@ -42,7 +42,8 @@ export default function AuthPage() {
             }
 
             // Success!
-            login(data.token);
+            const redirect = new URLSearchParams(window.location.search).get("redirect");
+            login(data.token, redirect || "/");
             // Router push is handled inside login() context method ideally, 
             // but we can force it here just in case.
         } catch (err: any) {

@@ -6,6 +6,7 @@ import { Topbar } from "@/components/Topbar";
 import { usePathname } from "next/navigation";
 import { SelectionProvider } from "@/utils/SelectionContext";
 import { PhotoProvider } from "@/utils/PhotoContext";
+import { AlbumProvider } from "@/utils/AlbumContext";
 import { ThemeProvider } from "@/components/ThemeProvider";
 
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
@@ -44,7 +45,7 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
         <div className="flex bg-[#fafafa] dark:bg-[#09090b] min-h-screen font-sans antialiased text-gray-900 dark:text-gray-100 transition-colors duration-300">
             <Sidebar />
             <div className="flex-1 flex flex-col min-w-0">
-                <Topbar />
+                {pathname.startsWith('/share/') ? null : <Topbar />}
                 <main className="flex-1 overflow-y-auto p-4 md:p-8">
                     {children}
                 </main>
@@ -59,7 +60,9 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
             <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
                 <PhotoProvider>
                     <SelectionProvider>
-                        <AuthenticatedLayout>{children}</AuthenticatedLayout>
+                        <AlbumProvider>
+                            <AuthenticatedLayout>{children}</AuthenticatedLayout>
+                        </AlbumProvider>
                     </SelectionProvider>
                 </PhotoProvider>
             </ThemeProvider>
