@@ -120,9 +120,9 @@ router.post('/', auth, upload.single('image'), async (req, res) => {
 
         await newPicture.save();
 
-        // Trigger ML processing (Async)
-        // In a real app, this would be a job queue. Here we just call it.
-        // processImage(newPicture._id, req.file.path);
+        // Trigger ML processing (Async Trigger)
+        // We await the trigger call, but the ML service returns immediately.
+        await triggerML(newPicture._id, req.file.path);
 
         res.status(201).json({ message: 'Image uploaded successfully', picture: newPicture });
     } catch (error) {
@@ -131,42 +131,60 @@ router.post('/', auth, upload.single('image'), async (req, res) => {
     }
 });
 
-const fs = require('fs');
-const FormData = require('form-data');
-
-async function processImage(pictureId, filePath) {
+// Callbacks from ML Service
+router.post('/callback/ai', async (req, res) => {
     try {
-        console.log(`Processing image: ${pictureId}`);
-        const formData = new FormData();
-        formData.append('file', fs.createReadStream(filePath));
+        const { picture_id, is_ai } = req.body;
+        console.log(`Received AI Callback for ${picture_id}: ${is_ai}`);
 
-        // Call ML Service (Assuming it's running on port 8000)
-        // Python/FastAPI default is 8000
-        const mlResponse = await axios.post('http://localhost:8000/process-image', formData, {
-            headers: {
-                ...formData.getHeaders()
-            }
-        });
+        await Picture.findByIdAndUpdate(picture_id, { is_ai: is_ai });
+        res.json({ status: 'ok' });
+    } catch (err) {
+        console.error('AI Callback Error', err);
+        res.status(500).json({ message: 'Error updating AI status' });
+    }
+});
 
-        const { faces } = mlResponse.data;
-        console.log(`Detected ${faces.length} faces for ${pictureId}`);
-
-        // Update Picture with detected faces
-        const picture = await Picture.findById(pictureId);
+router.post('/callback/faces', async (req, res) => {
+    try {
+        const { picture_id, faces } = req.body;
+        console.log(`Received Face Callback for ${picture_id}: ${faces.length} faces`);
 
         // Map ML faces to DB structure
         const dbFaces = faces.map(f => ({
             face_id: f.face_id,
             box: f.box,
-            person_id: null // Initially null, logic to assign person_id comes later (clustering)
+            person_id: f.person_id
         }));
 
-        picture.faces = dbFaces;
-        await picture.save();
-        console.log(`Updated picture ${pictureId} with faces`);
-
+        await Picture.findByIdAndUpdate(picture_id, { faces: dbFaces });
+        res.json({ status: 'ok' });
     } catch (err) {
-        console.error('ML Processing Error:', err.message);
+        console.error('Face Callback Error', err);
+        res.status(500).json({ message: 'Error updating faces' });
+    }
+});
+
+
+const fs = require('fs');
+const FormData = require('form-data');
+
+async function triggerML(pictureId, filePath) {
+    try {
+        console.log(`Triggering ML for: ${pictureId}`);
+        const formData = new FormData();
+        formData.append('file', fs.createReadStream(filePath));
+        formData.append('picture_id', pictureId.toString());
+
+        // Call ML Service Trigger Endpoint
+        await axios.post('http://localhost:8000/trigger-processing', formData, {
+            headers: {
+                ...formData.getHeaders()
+            }
+        });
+        console.log(`ML Triggered for ${pictureId}`);
+    } catch (err) {
+        console.error('ML Trigger Error:', err.message);
     }
 }
 
