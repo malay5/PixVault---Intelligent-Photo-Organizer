@@ -2,4 +2,9 @@ fastapi
 uvicorn
 python-multipart
 numpy
+aiohttp
+joblib
+scikit-learn
+scikit-image
+opencv-python-headless
 # face_recognition # Add this later when confirming system deps (cmake, dlib)

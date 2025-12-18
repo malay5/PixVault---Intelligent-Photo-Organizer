@@ -59,6 +59,7 @@ export function PhotoProvider({ children }: { children: React.ReactNode }) {
                 headers: { 'x-auth-token': token || '' }
             });
             const data = await res.json();
+            console.log(data);
             // Map backend data to frontend structure if needed
             // Backend returns _id. Frontend grid used `id`. Let's normalize.
             const mapped = data.map((p: any) => ({

@@ -36,7 +36,13 @@ const pictureSchema = new mongoose.Schema({
         enum: ['active', 'trash', 'archive'],
         default: 'active'
     },
-    deletedAt: { type: Date } // For 60-day auto-delete logic
+    deletedAt: { type: Date }, // For 60-day auto-delete logic
+    // AI False Positive Reporting
+    reports: [{
+        user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        reason: { type: String },
+        timestamp: { type: Date, default: Date.now }
+    }]
 });
 
 module.exports = mongoose.model('Picture', pictureSchema);

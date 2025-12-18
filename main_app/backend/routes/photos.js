@@ -187,3 +187,30 @@ router.post('/copy', auth, async (req, res) => {
 });
 
 module.exports = router;
+
+// @route   POST api/photos/:id/report
+// @desc    Report an AI False Positive
+// @access  Private
+router.post('/:id/report', auth, async (req, res) => {
+    try {
+        const { reason } = req.body;
+        const photo = await Picture.findById(req.params.id);
+
+        if (!photo) {
+            return res.status(404).json({ message: 'Photo not found' });
+        }
+
+        // Add report
+        photo.reports.push({
+            user_id: req.user.id,
+            reason: reason || 'False Positive'
+        });
+
+        await photo.save();
+        res.json({ message: 'Report submitted successfully' });
+
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server Error');
+    }
+});

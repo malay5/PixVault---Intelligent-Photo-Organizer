@@ -7,6 +7,10 @@ __pycache__/
 venv/
 env/
 .venv/
+test/
+test1/
+dataset/ai_image/*
+dataset/real_image/*
 
 # Environment
 .env

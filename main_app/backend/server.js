@@ -26,6 +26,7 @@ app.use('/api/upload', require('./routes/upload'));
 app.use('/api/albums', require('./routes/albums'));
 app.use('/api/people', require('./routes/people'));
 app.use('/api/photos', require('./routes/photos'));
+app.use('/api/dashboard', require('./routes/dashboard'));
 
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);

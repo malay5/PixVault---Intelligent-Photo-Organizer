@@ -236,12 +236,34 @@ export default function ImageViewerPage() {
                                 )}
 
                                 {photo.is_ai && (
-                                    <div className="flex gap-4">
-                                        <Sparkles className="text-purple-500 mt-1" size={20} />
-                                        <div>
-                                            <div className="font-medium text-purple-600">AI Generated</div>
-                                            <div className="text-sm text-gray-500">Classified by PixelVault AI</div>
+                                    <div className="flex flex-col gap-2">
+                                        <div className="flex gap-4">
+                                            <Sparkles className="text-purple-500 mt-1" size={20} />
+                                            <div>
+                                                <div className="font-medium text-purple-600">AI Generated</div>
+                                                <div className="text-sm text-gray-500">Classified by PixelVault AI</div>
+                                            </div>
                                         </div>
+                                        {/* Report Action */}
+                                        <button
+                                            onClick={async () => {
+                                                if (!confirm("Report this image as falsely classified (Real Photo)?")) return;
+                                                const token = localStorage.getItem("token");
+                                                try {
+                                                    await fetch(`http://localhost:5000/api/photos/${photo._id}/report`, {
+                                                        method: 'POST',
+                                                        headers: { 'Content-Type': 'application/json', 'x-auth-token': token || '' },
+                                                        body: JSON.stringify({ reason: 'False Positive: User reported as Real' })
+                                                    });
+                                                    alert("Report submitted. Thank you for helping improve our AI.");
+                                                } catch (e) {
+                                                    alert("Failed to report.");
+                                                }
+                                            }}
+                                            className="ml-9 text-xs text-red-400 hover:text-red-500 hover:underline text-left"
+                                        >
+                                            Report False Positive
+                                        </button>
                                     </div>
                                 )}
 
