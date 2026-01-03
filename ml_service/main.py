@@ -4,11 +4,15 @@ import cv2
 import numpy as np
 import joblib
 import os
+# import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 from fastapi import FastAPI, UploadFile, File, Form, BackgroundTasks
 from pydantic import BaseModel
 from skimage.feature import local_binary_pattern
 from contextlib import asynccontextmanager
 import random
+import requests
+from ultralytics import YOLO
 
 # --- 1. FEATURE EXTRACTOR ENGINE (The "Eyes") ---
 # This class must exactly match the logic used during training.
@@ -66,6 +70,111 @@ class FeatureExtractor:
         
         return np.concatenate([fft, ela, lbp]).reshape(1, -1)
 
+        return np.concatenate([fft, ela, lbp]).reshape(1, -1)
+
+# --- 1.1 Face Detector ---
+class FaceDetector:
+    def __init__(self):
+        self.model = None
+        self._download_model()
+    
+    def _download_model(self):
+        model_name = "yolov8n-face.pt"
+        # User requested specific GitHub URL
+        url = "https://github.com/lindevs/yolov8-face/releases/latest/download/yolov8n-face-lindevs.pt"
+        
+        if os.path.exists(model_name):
+            # Check if file is suspiciously small (e.g. < 1MB, model should be ~6MB)
+            if os.path.getsize(model_name) < 1024 * 1024: 
+                print(f"⚠️ [FaceDetector] Found corrupt/small model file ({os.path.getsize(model_name)} bytes). Deleting...")
+                try: os.remove(model_name)
+                except: pass
+
+        if not os.path.exists(model_name):
+            print(f"⬇️ [FaceDetector] Downloading Model from {url}...")
+            try:
+                headers = {'User-Agent': 'Mozilla/5.0'} 
+                r = requests.get(url, headers=headers, stream=True)
+                
+                if r.status_code == 200:
+                    with open(model_name, 'wb') as f:
+                        for chunk in r.iter_content(chunk_size=8192):
+                            f.write(chunk)
+                    print(f"✅ [FaceDetector] Download Complete. Size: {os.path.getsize(model_name)} bytes")
+                else:
+                    print(f"❌ [FaceDetector] Download failed with status {r.status_code}")
+                    print(r.text[:200])
+            except Exception as e:
+                print(f"❌ [FaceDetector] Failed to download model: {e}")
+
+    def load_model(self):
+        try:
+            if not os.path.exists("yolov8n-face.pt"):
+                self._download_model()
+            
+            if self.model is None:
+                print("🔹 [FaceDetector] Loading YOLOv8-Face Model into memory...")
+                self.model = YOLO('yolov8n-face.pt')
+                print("✅ [FaceDetector] Model Loaded.")
+        except Exception as e:
+            print(f"⚠️ [FaceDetector] Model load failed: {e}. Attempting to re-download...")
+            if os.path.exists("yolov8n-face.pt"):
+                os.remove("yolov8n-face.pt")
+            
+            self._download_model()
+            try:
+                self.model = YOLO('yolov8n-face.pt')
+                print("✅ [FaceDetector] Model recovered and loaded.")
+            except Exception as e2:
+                print(f"❌ [FaceDetector] CRITICAL: Could not load model. {e2}")
+                self.model = None
+
+    def detect_faces(self, img_bytes):
+        print("🔹 [FaceDetector] Detecting faces in image...")
+        if self.model is None: 
+            print("⚠️ [FaceDetector] Model not loaded, attempting load...")
+            self.load_model()
+            if self.model is None:
+                print("❌ [FaceDetector] Aborting detection: Model unavailable.")
+                return []
+        
+        # Convert bytes to cv2 image
+        nparr = np.frombuffer(img_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img is None: 
+            print("❌ [FaceDetector] Failed to decode image bytes.")
+            return []
+
+        # Predict
+        results = self.model.predict(img, conf=0.25, verbose=False)
+        print(f"🔹 [FaceDetector] Inference complete. Processing results...")
+        
+        # Format results
+        faces = []
+        boxes = results[0].boxes.data.cpu().numpy()
+        
+        print(f"🔹 [FaceDetector] Found {len(boxes)} candidate bounding boxes.")
+
+        for i, box in enumerate(boxes):
+            x1, y1, x2, y2, conf, cls = box
+            w = x2 - x1
+            h = y2 - y1
+            
+            print(f"   -> Face {i+1}: Conf={conf:.2f}, Box=[{int(x1)}, {int(y1)}, {int(w)}, {int(h)}]")
+
+            faces.append({
+                "box": {
+                    "x": int(x1),
+                    "y": int(y1),
+                    "w": int(w),
+                    "h": int(h)
+                },
+                "face_id": f"face_{random.randint(10000, 99999)}", 
+                "person_id": None 
+            })
+            
+        return faces
+
 # --- 2. MODEL LOADER ---
 ml_models = {}
 
@@ -77,6 +186,8 @@ async def lifespan(app: FastAPI):
         print(f"Loading AI Detection Model from {model_path}...")
         ml_models["ai_detector"] = joblib.load(model_path)
         ml_models["extractor"] = FeatureExtractor()
+        ml_models["face_detector"] = FaceDetector()
+        ml_models["face_detector"].load_model() # Preload
         print("✅ Model Loaded Successfully.")
     else:
         print("⚠️ WARNING: Model file not found. AI detection will fail.")
@@ -147,29 +258,30 @@ async def process_ai_task(picture_id: str, file_bytes: bytes):
         except Exception as e:
             print(f"⚠️ Failed to send AI callback: {e}")
 
-async def process_faces_task(picture_id: str, filename: str):
-    # (Kept original dummy logic as requested)
-    print(f"Processing Faces for {picture_id}")
-    await asyncio.sleep(3) 
+async def process_faces_task(picture_id: str, file_bytes: bytes):
+    print(f"🚀 [Task] Processing Faces for {picture_id}")
     
     faces = []
-    num_faces = random.randint(2, 5)
-    for i in range(num_faces):
-        faces.append({
-            "box": {"x": random.randint(0, 100), "y": random.randint(0, 100), "w": 50, "h": 50},
-            "face_id": f"face_{random.randint(1000, 9999)}",
-            "person_id": f"person_{random.randint(1, 10)}" if random.random() > 0.5 else None
-        })
+    try:
+        detector = ml_models.get("face_detector")
+        if detector:
+            faces = detector.detect_faces(file_bytes)
+            print(f"✅ [Task] Detected {len(faces)} faces for {picture_id}.")
+        else:
+            print("⚠️ [Task] FACE DETECTOR NOT LOADED. Skipping detection.")
+    except Exception as e:
+        print(f"❌ [Task] Error detecting faces: {e}")
     
     async with aiohttp.ClientSession() as session:
         try:
+            print(f"📡 [Task] Sending callback to Backend with {len(faces)} faces...")
             await session.post(
                 f"http://localhost:5000/api/upload/callback/faces",
                 json={"picture_id": picture_id, "faces": faces}
             )
-            print(f"✅ Face Callback sent for {picture_id}")
+            print(f"✅ [Task] Face Callback sent successfully for {picture_id}")
         except Exception as e:
-            print(f"⚠️ Failed to send Face callback: {e}")
+            print(f"⚠️ [Task] Failed to send Face callback: {e}")
 
 # --- 5. ENDPOINTS ---
 
@@ -190,7 +302,9 @@ async def trigger_processing(
     file_bytes = await file.read()
     
     # Pass the bytes to the background task (instead of the filename)
+    # Pass the bytes to the background task (instead of the filename)
     background_tasks.add_task(process_ai_task, picture_id, file_bytes)
-    background_tasks.add_task(process_faces_task, picture_id, file.filename)
+    # Re-use bytes for faces logic (Updated signature)
+    background_tasks.add_task(process_faces_task, picture_id, file_bytes)
     
     return {"status": "processing_started", "message": "Background tasks triggered"}

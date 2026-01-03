@@ -18,3 +18,10 @@ package-lock.json
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+*.jpg
+*.png
+*.jpeg
+*.zip
+ml_service/for_face_identification_and_detection/base_idea_file - Python Code for face detection and recognition and identification.py
+ml_service/dataset/92jk3fchm2-4/Classification Results.csv

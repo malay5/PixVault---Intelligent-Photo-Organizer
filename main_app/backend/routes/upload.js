@@ -60,8 +60,17 @@ router.post('/', auth, upload.single('image'), async (req, res) => {
         let isAi = false;
 
         try {
-            const imageBuffer = fs.readFileSync(absoluteFilePath);
+            // Fix path resolution: req.file.path is relative to root (e.g. 'uploads/file.jpg')
+            // absoluteFilePath needs to be correct.
+            // If running from backend/server.js, __dirname is backend/.
+            // '..' goes to main_app/. 'uploads/' is likely in main_app/backend/uploads or main_app/uploads?
+            // Multer saves to 'uploads/' relative to CWD.
+            // If CWD is backend/, then uploads/ is in backend/.
+
+            // Let's rely on req.file.path directly if CWD is correct, or resolve safely.
+            const imageBuffer = fs.readFileSync(req.file.path);
             dimensions = sizeOf(imageBuffer);
+            console.log(`Calculated Dimensions: ${dimensions.width}x${dimensions.height}`);
 
             // EXIF Parsing
             const parser = require('exif-parser').create(imageBuffer);

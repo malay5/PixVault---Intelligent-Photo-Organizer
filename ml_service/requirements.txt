@@ -3,6 +3,10 @@ uvicorn
 python-multipart
 numpy
 aiohttp
+ultralytics
+opencv-python
+requests
+numpyy
 joblib
 scikit-learn
 scikit-image

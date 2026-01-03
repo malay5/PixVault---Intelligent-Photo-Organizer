@@ -49,11 +49,11 @@ router.get('/health', async (req, res) => {
     const dbStatus = mongoose.connection.readyState === 1 ? 'healthy' : 'degraded';
 
     // 2. ML Service Check (Ping)
-    // Assume ML Service runs on localhost:8000
+    // Assume ML Service runs on localhost:8001
     let mlStatus = 'unknown';
     const axios = require('axios');
     try {
-        await axios.get('http://localhost:8000/');
+        await axios.get('http://localhost:8001/');
         mlStatus = 'healthy';
     } catch (e) {
         mlStatus = 'unreachable';

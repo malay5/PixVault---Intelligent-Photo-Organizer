@@ -14,7 +14,9 @@ import {
     Calendar,
     Camera,
     Image as ImageIcon,
-    Sparkles
+    Sparkles,
+    ScanFace, // Creative Icon
+    Eye
 } from "lucide-react";
 import { useEffect, useCallback, useState } from "react";
 import { clsx } from "clsx";
@@ -29,6 +31,7 @@ export default function ImageViewerPage() {
     // const [showInfo, setShowInfo] = useState(false);
 
     const showInfo = searchParams.get("info") === "true";
+    const [showFaceScan, setShowFaceScan] = useState(true); // Creative Toggle State
 
     // Use global state to find photo + navigation
     // TODO: Ideally we also fetch individual photo if not in state (e.g. direct link)
@@ -109,10 +112,11 @@ export default function ImageViewerPage() {
             if (e.key === "Escape") router.back();
             if (e.key === "i") toggleInfo();
             if (e.key === "Delete" || e.key === "Backspace") handleDelete();
+            if (e.key === "f") setShowFaceScan(prev => !prev); // Shortcut for Face Scan
         };
         window.addEventListener("keydown", handleKeyDown);
         return () => window.removeEventListener("keydown", handleKeyDown);
-    }, [handleNext, handlePrev, router, handleDelete, toggleInfo]); // Added handleDelete dep
+    }, [handleNext, handlePrev, router, handleDelete, toggleInfo, setShowFaceScan]); // Added handleDelete dep
 
     if (loading && !photo) return <div className="text-white flex items-center justify-center h-screen animate-pulse">Loading photo...</div>;
     if (!photo) return <div className="text-white flex items-center justify-center h-screen">Photo not found</div>;
@@ -136,6 +140,8 @@ export default function ImageViewerPage() {
                         <ArrowLeft />
                     </button>
                     <div className="flex gap-2">
+                        {/* Vision Mode Toggle Removed - Now in Info Drawer */}
+
                         <button
                             onClick={() => toggleFavorite(photo._id)}
                             className="p-2 hover:bg-white/10 rounded-full transition-colors group"
@@ -161,38 +167,85 @@ export default function ImageViewerPage() {
                 </div>
 
                 {/* Main Image Area */}
-                <div className="flex-1 relative flex items-center justify-center bg-black">
-                    <div className="relative w-full h-full p-4 flex items-center justify-center">
-                        <motion.div
-                            key={photo._id}
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            transition={{ duration: 0.2 }}
-                            className="relative w-full h-full"
-                        >
+                <div className="flex-1 relative flex items-center justify-center bg-black p-4 select-none">
+                    <motion.div
+                        key={photo._id}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ duration: 0.2 }}
+                        className="relative flex items-center justify-center w-full h-full"
+                    >
+                        {/* 
+                            Robust Centering Container:
+                            - 'relative inline-block': Shrinks to fit the image dimensions exactly.
+                            - The parent 'flex items-center justify-center' ensures this shrink-wrapped block is centered.
+                            - 'width: fit-content': Explicitly tells it to size based on content.
+                        */}
+                        <div className="relative inline-block" style={{ width: 'fit-content', height: 'fit-content' }}>
                             <Image
                                 src={imgSrc}
                                 alt={photo.original_name}
-                                fill
-                                className="object-contain"
+                                width={photo.metadata?.width || 1200}
+                                height={photo.metadata?.height || 800}
+                                // Use 'style' for constraints instead of class to avoid conflicts.
+                                // objectFit: scale-down behaving like contain but respects original size limits if needed
+                                style={{ width: 'auto', height: 'auto', maxHeight: '90vh', maxWidth: '100vw', objectFit: 'contain', display: 'block' }}
                                 priority
-                                unoptimized // Optional: Skip next/image optimization if local issues persist, but ideally shouldn't
+                                unoptimized
+                                onLoadingComplete={(img) => {
+                                    // Dynamic fallback: If metadata is 0, update local state with real dimensions
+                                    if (!photo.metadata?.width || !photo.metadata?.height) {
+                                        const newMeta = { ...photo.metadata, width: img.naturalWidth, height: img.naturalHeight };
+                                        setPhoto({ ...photo, metadata: newMeta });
+                                    }
+                                }}
                             />
-                        </motion.div>
-                    </div>
 
-                    {/* Navigation Arrows */}
-                    {idx > 0 && (
-                        <button onClick={handlePrev} className="absolute left-4 p-3 bg-black/20 hover:bg-black/50 backdrop-blur-sm rounded-full transition-all text-white/70 hover:text-white group z-10">
-                            <ChevronLeft size={32} className="group-active:-translate-x-1 transition-transform" />
-                        </button>
-                    )}
-                    {idx !== -1 && idx < photos.length - 1 && (
-                        <button onClick={handleNext} className="absolute right-4 p-3 bg-black/20 hover:bg-black/50 backdrop-blur-sm rounded-full transition-all text-white/70 hover:text-white group z-10">
-                            <ChevronRight size={32} className="group-active:translate-x-1 transition-transform" />
-                        </button>
-                    )}
+                            {/* Face Overlays - Only show if toggle is ON and metadata exists */}
+                            {showFaceScan && photo.faces && photo.faces.map((face: any, i: number) => {
+                                const metaW = photo.metadata?.width;
+                                const metaH = photo.metadata?.height;
+
+                                if (!metaW || !metaH) return null;
+
+                                const { x, y, w, h } = face.box;
+                                const left = (x / metaW) * 100;
+                                const top = (y / metaH) * 100;
+                                const width = (w / metaW) * 100;
+                                const height = (h / metaH) * 100;
+
+                                return (
+                                    <div
+                                        key={face.face_id || i}
+                                        className="absolute border-2 border-green-500 z-10 hover:bg-green-500/20 transition-colors cursor-pointer group/face"
+                                        style={{
+                                            left: `${left}%`,
+                                            top: `${top}%`,
+                                            width: `${width}%`,
+                                            height: `${height}%`
+                                        }}
+                                    >
+                                        <div className="opacity-0 group-hover/face:opacity-100 transition-opacity absolute -top-6 left-0 bg-green-500 text-black text-[10px] font-bold px-1 rounded-sm whitespace-nowrap pointer-events-none">
+                                            Face {i + 1}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </motion.div>
                 </div>
+
+                {/* Navigation Arrows */}
+                {idx > 0 && (
+                    <button onClick={handlePrev} className="absolute left-4 top-1/2 -translate-y-1/2 p-3 bg-black/20 hover:bg-black/50 backdrop-blur-sm rounded-full transition-all text-white/70 hover:text-white group z-10">
+                        <ChevronLeft size={32} className="group-active:-translate-x-1 transition-transform" />
+                    </button>
+                )}
+                {idx !== -1 && idx < photos.length - 1 && (
+                    <button onClick={handleNext} className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-black/20 hover:bg-black/50 backdrop-blur-sm rounded-full transition-all text-white/70 hover:text-white group z-10">
+                        <ChevronRight size={32} className="group-active:translate-x-1 transition-transform" />
+                    </button>
+                )}
             </div>
 
             {/* Info Drawer */}
@@ -264,6 +317,51 @@ export default function ImageViewerPage() {
                                         >
                                             Report False Positive
                                         </button>
+                                    </div>
+                                )}
+
+                                {/* Neural Vision Section */}
+                                {photo.faces && photo.faces.length > 0 && (
+                                    <div className="border-t border-gray-100 pt-6">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 flex items-center gap-2">
+                                                <ScanFace size={14} /> Neural Vision
+                                            </h3>
+                                            <button
+                                                onClick={() => setShowFaceScan(!showFaceScan)}
+                                                className={clsx(
+                                                    "relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none",
+                                                    showFaceScan ? "bg-green-500" : "bg-gray-200"
+                                                )}
+                                            >
+                                                <span
+                                                    className={clsx(
+                                                        "inline-block h-3 w-3 transform rounded-full bg-white transition-transform",
+                                                        showFaceScan ? "translate-x-5" : "translate-x-1"
+                                                    )}
+                                                />
+                                            </button>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            {photo.faces.map((face: any, i: number) => (
+                                                <div key={face.face_id || i} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors group cursor-pointer"
+                                                    onMouseEnter={() => setShowFaceScan(true)} // Auto-show on hover list
+                                                >
+                                                    <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500">
+                                                        <ScanFace size={14} />
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <div className="text-sm font-medium text-gray-900">
+                                                            {face.person_id ? "Identified Person" : `Face ${i + 1}`}
+                                                        </div>
+                                                        <div className="text-xs text-gray-500">
+                                                            {face.person_id ? "Confidence: High" : "Unknown / Unlabeled"}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
                                     </div>
                                 )}
 
