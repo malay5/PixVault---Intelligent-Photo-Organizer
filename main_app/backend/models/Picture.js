@@ -8,7 +8,9 @@ const faceSchema = new mongoose.Schema({
         w: Number,
         h: Number
     },
-    person_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Person' }
+    person_id: { type: String }, // String ID from ML (e.g. person_a1b2)
+    name: { type: String }, // Redundant but useful for quick access
+    avatar_url: { type: String }
 });
 
 const pictureSchema = new mongoose.Schema({

@@ -15,6 +15,7 @@
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
+    "exif-parser": "^0.1.12",
     "express": "^5.2.1",
     "form-data": "^4.0.5",
     "image-size": "^2.0.2",

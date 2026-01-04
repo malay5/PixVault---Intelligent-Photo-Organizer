@@ -25,3 +25,10 @@ yarn-error.log*
 *.zip
 ml_service/for_face_identification_and_detection/base_idea_file - Python Code for face detection and recognition and identification.py
 ml_service/dataset/92jk3fchm2-4/Classification Results.csv
+
+chroma_test*
+
+*.pkl
+
+*.sqlite
+ml_service/face_db*

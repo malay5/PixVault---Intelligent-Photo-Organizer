@@ -20,7 +20,7 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage });
 const auth = require('../middleware/auth');
 const axios = require('axios');
-const sizeOf = require('image-size');
+const sizeOf = require('image-size').default || require('image-size'); // Handle version differences safe
 
 // POST /api/upload
 router.post('/', auth, upload.single('image'), async (req, res) => {
@@ -73,16 +73,23 @@ router.post('/', auth, upload.single('image'), async (req, res) => {
             console.log(`Calculated Dimensions: ${dimensions.width}x${dimensions.height}`);
 
             // EXIF Parsing
-            const parser = require('exif-parser').create(imageBuffer);
-            const result = parser.parse();
-            if (result && result.tags) {
-                exifData = result.tags;
-                cameraModel = exifData.Model || exifData.Make || null;
-                software = exifData.Software || null;
+            // EXIF Parsing (Only for JPEGs)
+            if (dimensions.type === 'jpg' || dimensions.type === 'jpeg') {
+                try {
+                    const parser = require('exif-parser').create(imageBuffer);
+                    const result = parser.parse();
+                    if (result && result.tags) {
+                        exifData = result.tags;
+                        cameraModel = exifData.Model || exifData.Make || null;
+                        software = exifData.Software || null;
 
-                // Simple Heuristic for AI detection via metadata
-                if (software && (software.toLowerCase().includes('ai') || software.toLowerCase().includes('diffusion') || software.toLowerCase().includes('dall-e') || software.toLowerCase().includes('midjourney'))) {
-                    isAi = true;
+                        // Simple Heuristic for AI detection via metadata
+                        if (software && (software.toLowerCase().includes('ai') || software.toLowerCase().includes('diffusion') || software.toLowerCase().includes('dall-e') || software.toLowerCase().includes('midjourney'))) {
+                            isAi = true;
+                        }
+                    }
+                } catch (exifErr) {
+                    console.log('EXIF parsing failed (harmless):', exifErr.message);
                 }
             }
         } catch (err) {
@@ -154,17 +161,112 @@ router.post('/callback/ai', async (req, res) => {
     }
 });
 
+// Import Person model
+const Person = require('../models/Person');
+
+const fs = require('fs');
+// path is already imported at the top of the file.
+
 router.post('/callback/faces', async (req, res) => {
     try {
         const { picture_id, faces } = req.body;
         console.log(`Received Face Callback for ${picture_id}: ${faces.length} faces`);
 
-        // Map ML faces to DB structure
-        const dbFaces = faces.map(f => ({
-            face_id: f.face_id,
-            box: f.box,
-            person_id: f.person_id
-        }));
+        const dbFaces = [];
+
+        // Ensure thumbnails directory exists
+        const thumbDir = path.join(__dirname, '..', 'uploads', 'thumbnails');
+        if (!fs.existsSync(thumbDir)) {
+            fs.mkdirSync(thumbDir, { recursive: true });
+        }
+
+        for (const f of faces) {
+            let avatarUrl = f.avatar_url; // Default if old ML
+
+            // Handle Base64 Avatar from ML (New Logic)
+            if (f.avatar_b64 && f.person_id) {
+                // Determine logic: Save if new identity OR if we decide to overwrite (user said "use first image")
+                // We'll check if Person exists below. For now, let's prepare the potential file path.
+                // Actually, efficient logic: Check person first.
+            }
+
+            // Logic moved inside Person check for optimization
+
+            // 2. Update Person Collection (Upsert or Update Stats)
+            if (f.person_id) {
+                let person = await Person.findOne({ person_id: f.person_id });
+
+                if (!person) {
+                    // Create New Person
+
+                    // SAVE THUMBNAIL
+                    if (f.avatar_b64) {
+                        const filename = `${f.person_id}.jpg`;
+                        const filePath = path.join(thumbDir, filename);
+                        fs.writeFileSync(filePath, Buffer.from(f.avatar_b64, 'base64'));
+                        avatarUrl = `/uploads/thumbnails/${filename}`; // Relative URL for frontend
+                        console.log(`Saved thumbnail for new ${f.person_id}`);
+                    }
+
+                    person = new Person({
+                        person_id: f.person_id,
+                        name: f.name || "Unknown",
+                        thumbnail_url: avatarUrl,
+                        face_count: 1
+                    });
+                    await person.save();
+                    console.log(`Created new person: ${f.name} (${f.person_id})`);
+                } else {
+                    // Update stats
+                    person.face_count += 1;
+
+                    // Update thumbnail ONLY if missing (User said: "Just use the first image... if detached randomly choose")
+                    if (!person.thumbnail_url && f.avatar_b64) {
+                        const filename = `${f.person_id}.jpg`;
+                        const filePath = path.join(thumbDir, filename);
+                        fs.writeFileSync(filePath, Buffer.from(f.avatar_b64, 'base64'));
+                        person.thumbnail_url = `/uploads/thumbnails/${filename}`;
+                        avatarUrl = person.thumbnail_url;
+                        console.log(`Updated missing thumbnail for ${f.person_id}`);
+                    } else if (person.thumbnail_url) {
+                        // Use existing thumbnail for consistency in this Picture record too?
+                        // The user said "the thumbnail for each user could be different for the same person's image" -- Wait.
+                        // User said: "(the thumbnail for each user could be different for the same person's image)" -> confusing.
+                        // Then said: "Just use the first image... as ITS thumbnail." 
+                        // I think they meant "The thumbnail representative OF THE PERSON".
+                        // So I should typically use the Person's thumbnail for the UI (Avatar).
+
+                        // BUT, for the "Face Box" on the specific photo, we might want THAT crop?
+                        // No, the UI uses the full image and draws a box. 
+                        // The `avatar_url` on `Picture.faces` is used... where? 
+                        // In `app/photos/[id]`, I used `face.avatar_url`.
+                        // If I want the `Picture.faces` to have the specific crop of THAT face, I should save it every time?
+                        // "The same place... with name of thumbnails folder... is stored... Just use the first image... as ITS thumbnail"
+                        // This implies "Person Thumbnail" = First Image.
+                        // It does NOT imply saving a crop for every single face occurrence.
+
+                        // So, `face.avatar_url` in `Picture` should probably point to `Person.thumbnail_url`?
+                        // OR, if I want to show the specific face in the list, I'd need to save it.
+                        // Current UI: Shows an avatar in the list.
+                        // If I don't save every crop, I can't show unique avatars per face in the list.
+                        // I will use `Person.thumbnail_url` as the fallback/primary.
+                        avatarUrl = person.thumbnail_url;
+                    }
+
+                    await person.save();
+                }
+            }
+
+            // 1. Prepare Face Object for Picture
+            const faceObj = {
+                face_id: f.face_id,
+                box: f.box,
+                person_id: f.person_id,
+                name: f.name || "Unknown",
+                avatar_url: avatarUrl // This will now point to the Person's reference thumbnail (or specific if we changed logic)
+            };
+            dbFaces.push(faceObj);
+        }
 
         await Picture.findByIdAndUpdate(picture_id, { faces: dbFaces });
         res.json({ status: 'ok' });
@@ -175,7 +277,7 @@ router.post('/callback/faces', async (req, res) => {
 });
 
 
-const fs = require('fs');
+// const fs = require('fs');
 const FormData = require('form-data');
 
 async function triggerML(pictureId, filePath) {

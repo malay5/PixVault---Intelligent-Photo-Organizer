@@ -2,17 +2,35 @@ import asyncio
 import aiohttp
 import cv2
 import numpy as np
+import sys
+try:
+    import numpy.random._mt19937 as mt
+    # If we are on NumPy 1.x, this module might not exist or be named differently
+except ImportError:
+    from numpy.random import mt19937 as mt
+
+# Create a 'fake' module entry for the path saved in the NumPy 2.0 pickle
+# This tricks Joblib/Pickle into finding the class even though it's in a different place
+import types
+fake_mod = types.ModuleType("numpy.random._mt19937")
+fake_mod.MT19937 = mt.MT19937
+sys.modules["numpy.random._mt19937"] = fake_mod
+
 import joblib
 import os
 # import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 from fastapi import FastAPI, UploadFile, File, Form, BackgroundTasks
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from skimage.feature import local_binary_pattern
 from contextlib import asynccontextmanager
 import random
 import requests
 from ultralytics import YOLO
+
+# NEW: Import Identity System
+from face_identity_system import FaceIdentitySystem
 
 # --- 1. FEATURE EXTRACTOR ENGINE (The "Eyes") ---
 # This class must exactly match the logic used during training.
@@ -68,8 +86,6 @@ class FeatureExtractor:
         ela = self.get_ela_features(img)
         lbp = self.get_lbp_features(img)
         
-        return np.concatenate([fft, ela, lbp]).reshape(1, -1)
-
         return np.concatenate([fft, ela, lbp]).reshape(1, -1)
 
 # --- 1.1 Face Detector ---
@@ -160,17 +176,22 @@ class FaceDetector:
             w = x2 - x1
             h = y2 - y1
             
-            print(f"   -> Face {i+1}: Conf={conf:.2f}, Box=[{int(x1)}, {int(y1)}, {int(w)}, {int(h)}]")
+            # Ensure coordinates are within image bounds
+            x1, y1 = max(0, int(x1)), max(0, int(y1))
+            w, h = int(w), int(h)
+
+            print(f"   -> Face {i+1}: Conf={conf:.2f}, Box=[{x1}, {y1}, {w}, {h}]")
 
             faces.append({
                 "box": {
-                    "x": int(x1),
-                    "y": int(y1),
-                    "w": int(w),
-                    "h": int(h)
+                    "x": x1,
+                    "y": y1,
+                    "w": w,
+                    "h": h
                 },
                 "face_id": f"face_{random.randint(10000, 99999)}", 
-                "person_id": None 
+                "person_id": None,
+                "confidence": float(conf)
             })
             
         return faces
@@ -181,7 +202,16 @@ ml_models = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Load model on startup
-    model_path = "saved_models/voting_ensemble.pkl"
+    model_path = "saved_models/voting_ensemble_np_v1.pkl"
+    
+    # 1. Initialize Face ID System (InsightFace + Chroma)
+    # This might take a few seconds
+    try:
+        ml_models["identity_system"] = FaceIdentitySystem()
+    except Exception as e:
+        print(f"❌ [Lifespan] Failed to load Identity System: {e}")
+
+    # 2. Initialize Detectors
     if os.path.exists(model_path):
         print(f"Loading AI Detection Model from {model_path}...")
         ml_models["ai_detector"] = joblib.load(model_path)
@@ -192,11 +222,18 @@ async def lifespan(app: FastAPI):
     else:
         print("⚠️ WARNING: Model file not found. AI detection will fail.")
         ml_models["ai_detector"] = None
+        # Still load face detector if main model missing
+        ml_models["face_detector"] = FaceDetector()
+        ml_models["face_detector"].load_model()
+
     yield
     # Clean up (if needed)
     ml_models.clear()
 
 app = FastAPI(lifespan=lifespan)
+
+# Mount Thumbnails for Avatar serving - REMOVED (Served by Backend now)
+# app.mount("/thumbnails", StaticFiles(directory="thumbnails"), name="thumbnails")
 
 # --- 3. DATA MODELS ---
 class Box(BaseModel):
@@ -247,7 +284,7 @@ async def process_ai_task(picture_id: str, file_bytes: bytes):
     async with aiohttp.ClientSession() as session:
         try:
             await session.post(
-                f"http://localhost:5000/api/upload/callback/ai",
+                "http://localhost:5000/api/upload/callback/ai",
                 json={
                     "picture_id": picture_id, 
                     "is_ai": is_ai, 
@@ -262,11 +299,62 @@ async def process_faces_task(picture_id: str, file_bytes: bytes):
     print(f"🚀 [Task] Processing Faces for {picture_id}")
     
     faces = []
+    
+    # helper to compute hash for identity tracking
+    import hashlib
+    file_hash = hashlib.sha256(file_bytes).hexdigest()
+
     try:
         detector = ml_models.get("face_detector")
+        identity_system = ml_models.get("identity_system") # Retrieve logic
+        
         if detector:
+            # 1. Detect Boxes
             faces = detector.detect_faces(file_bytes)
             print(f"✅ [Task] Detected {len(faces)} faces for {picture_id}.")
+            
+            # 2. Identify Persons (if Identity System is loaded)
+            if identity_system and len(faces) > 0:
+                print("🔹 [Task] Identifying people...")
+                nparr = np.frombuffer(file_bytes, np.uint8)
+                full_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                
+                for face in faces:
+                    x, y, w, h = face["box"]["x"], face["box"]["y"], face["box"]["w"], face["box"]["h"]
+                    
+                    # Add Padding to crop for better recognition context
+                    img_h, img_w = full_img.shape[:2]
+                    pad_w = int(w * 0.25)
+                    pad_h = int(h * 0.25)
+                    
+                    crop_x1 = max(0, x - pad_w)
+                    crop_y1 = max(0, y - pad_h)
+                    crop_x2 = min(img_w, x + w + pad_w)
+                    crop_y2 = min(img_h, y + h + pad_h)
+                    
+                    # Crop face with padding
+                    face_crop = full_img[crop_y1:crop_y2, crop_x1:crop_x2]
+                    
+                    if face_crop.size > 0:
+                        # Log detailed crop info
+                        # print(f"   -> Face context: Box=[{x},{y},{w},{h}] | Pad=[{pad_w},{pad_h}] | Crop={face_crop.shape}")
+                        print("🔹 [Task] Identifying cropped face...")
+                        # Identify
+                        pid, name, is_new, crop_b64 = identity_system.identify_face(face_crop, file_path_hash=file_hash)
+                        print("Identified", pid, name, is_new)
+                        if pid:
+                            face["person_id"] = pid
+                            face["name"] = name
+                            # Send Base64 to Backend. Backend decides if/where to save it.
+                            face["avatar_b64"] = crop_b64
+                            face["is_new_identity"] = is_new 
+                            
+                            status = "NEW" if is_new else "MATCH"
+                            if "unrecognized" in pid: status = "UNRECOGNIZED (YOLO-Only)"
+                            print(f"   -> Identified: {status} | Name: {name} | ID: {pid}")
+                        else:
+                             print(f"   -> Identification Failed (Should not happen with 'Trust YOLO' logic)")
+                print("Identified people successfully.")
         else:
             print("⚠️ [Task] FACE DETECTOR NOT LOADED. Skipping detection.")
     except Exception as e:
@@ -301,7 +389,6 @@ async def trigger_processing(
     # Once the async function finishes, the stream closes.
     file_bytes = await file.read()
     
-    # Pass the bytes to the background task (instead of the filename)
     # Pass the bytes to the background task (instead of the filename)
     background_tasks.add_task(process_ai_task, picture_id, file_bytes)
     # Re-use bytes for faces logic (Updated signature)

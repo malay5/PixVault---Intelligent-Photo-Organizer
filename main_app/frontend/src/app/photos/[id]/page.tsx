@@ -344,23 +344,47 @@ export default function ImageViewerPage() {
                                         </div>
 
                                         <div className="space-y-2">
-                                            {photo.faces.map((face: any, i: number) => (
-                                                <div key={face.face_id || i} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors group cursor-pointer"
-                                                    onMouseEnter={() => setShowFaceScan(true)} // Auto-show on hover list
-                                                >
-                                                    <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500">
-                                                        <ScanFace size={14} />
-                                                    </div>
-                                                    <div className="flex-1">
-                                                        <div className="text-sm font-medium text-gray-900">
-                                                            {face.person_id ? "Identified Person" : `Face ${i + 1}`}
+                                            {photo.faces.map((face: any, i: number) => {
+                                                const displayName = face.name && face.name !== "Unknown" ? face.name : `Face ${i + 1}`;
+                                                return (
+                                                    <div
+                                                        key={face.face_id || i}
+                                                        className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors group cursor-pointer"
+                                                        onMouseEnter={() => setShowFaceScan(true)}
+                                                        onClick={() => face.person_id && router.push(`/people/${face.person_id}`)}
+                                                    >
+                                                        <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 overflow-hidden relative">
+                                                            {face.avatar_url ? (
+                                                                /* Simple Avatar if available in face object (might act as mini-thumbnail) */
+                                                                <Image
+                                                                    src={
+                                                                        face.avatar_url.startsWith('/thumbnails')
+                                                                            ? `http://localhost:8000${face.avatar_url}`
+                                                                            : face.avatar_url.startsWith('/uploads')
+                                                                                ? `http://localhost:5000${face.avatar_url}`
+                                                                                : face.avatar_url
+                                                                    }
+                                                                    alt={displayName}
+                                                                    fill
+                                                                    className="object-cover"
+                                                                    unoptimized
+                                                                />
+                                                            ) : (
+                                                                <ScanFace size={14} />
+                                                            )}
                                                         </div>
-                                                        <div className="text-xs text-gray-500">
-                                                            {face.person_id ? "Confidence: High" : "Unknown / Unlabeled"}
+                                                        <div className="flex-1">
+                                                            <div className={clsx("text-sm font-medium", face.person_id ? "text-blue-600" : "text-gray-900")}>
+                                                                {displayName}
+                                                            </div>
+                                                            <div className="text-xs text-gray-500">
+                                                                {face.person_id ? "Click to view profile" : "Unidentified"}
+                                                            </div>
                                                         </div>
+                                                        {face.person_id && <ChevronRight size={14} className="text-gray-300" />}
                                                     </div>
-                                                </div>
-                                            ))}
+                                                )
+                                            })}
                                         </div>
                                     </div>
                                 )}

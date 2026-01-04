@@ -72,18 +72,21 @@ router.put('/status', auth, async (req, res) => {
 // @desc    Get all photos for user (with optional status filter)
 // @access  Private
 router.get('/', auth, async (req, res) => {
-    const { status } = req.query;
+    const { status, person_id } = req.query;
     const filter = { user_id: req.user.id };
 
     // If status is provided and not 'all', filter by it.
     // If status is 'all', do not filter by status (return all).
-    // If status is NOT provided, default to 'active' (for backward compatibility or direct calls) 
-    // BUT for our new context usage, we likely want 'all' or explicit 'active'.
-
+    // If status is NOT provided, default to 'active' (for backward compatibility)
     if (status && status !== 'all') {
         filter.status = status;
     } else if (!status) {
         filter.status = 'active';
+    }
+
+    // Filter by Person ID (Look inside faces array)
+    if (person_id) {
+        filter['faces.person_id'] = person_id;
     }
 
     try {

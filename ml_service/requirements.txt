@@ -1,14 +1,16 @@
 fastapi
 uvicorn
 python-multipart
-numpy
 aiohttp
 ultralytics
 opencv-python
 requests
-numpyy
-joblib
+insightface
+chromadb
+onnxruntime
 scikit-learn
+numpy
+pandas
+joblib
 scikit-image
-opencv-python-headless
 # face_recognition # Add this later when confirming system deps (cmake, dlib)
