@@ -1,4 +1,4 @@
-# PixelVault
+# PixelVault (Legacy now)
 
 PixelVault is a self-hosted, "Google Photos" clone designed for privacy and ease of organization. It features automatic face clustering, album management, and a seamless photo browsing experience.
 
